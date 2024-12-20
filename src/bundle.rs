@@ -3,9 +3,11 @@ use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize)]
+use crate::nodes;
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SiteMetadata {
     project: String,
     branch: String,
@@ -34,7 +36,7 @@ impl BundleElement {
 }
 
 pub enum BundleElementData {
-    Document(bson::Bson),
+    Document(nodes::Document),
     Asset(Vec<u8>),
 }
 
@@ -116,9 +118,7 @@ impl<'a> Iterator for BundleIntoIterator<'a> {
                     filename,
                     BundleElementData::Asset(buf),
                 )));
-            } else if filename.starts_with("diagnostics") {
-                continue;
-            } else if filename == Path::new("site.bson") {
+            } else if filename == Path::new("site.bson") || filename.starts_with("diagnostics") {
                 continue;
             } else {
                 eprintln!("Unexpected bundle entry: {}", filename.display());

@@ -6,6 +6,7 @@ use anyhow::Result;
 use clap::Parser;
 
 mod bundle;
+mod nodes;
 
 #[derive(clap::Parser)]
 #[command(version, about, long_about = None)]
