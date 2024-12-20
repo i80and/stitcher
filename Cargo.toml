@@ -1,0 +1,17 @@
+[package]
+name = "stitcher"
+version = "0.1.0"
+edition = "2021"
+
+[profile.release]
+lto = "fat"
+debug = 1
+
+[dependencies]
+anyhow = { version = "1.0.94", features = ["backtrace"] }
+bson = "2.13.0"
+clap = { version = "4.5.23", features = ["derive"] }
+crossbeam-channel = "0.5.14"
+scoped_threadpool = "0.1.9"
+serde = { version = "1.0.216", features = ["derive"] }
+zip = "2.2.2"
