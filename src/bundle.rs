@@ -14,6 +14,13 @@ pub struct SiteMetadata {
 }
 
 impl SiteMetadata {
+    pub fn new(project: impl Into<String>, branch: impl Into<String>) -> Self {
+        Self {
+            project: project.into(),
+            branch: branch.into(),
+        }
+    }
+
     pub fn get_namespace(&self) -> String {
         format!("{}/{}", self.project, self.branch)
     }

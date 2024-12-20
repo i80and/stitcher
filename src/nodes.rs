@@ -175,7 +175,7 @@ pub struct DefinitionListItem {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DefinitionList {
-    children: Vec<DefinitionListItem>,
+    children: Vec<Node>, // DefinitionListItem
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -185,7 +185,7 @@ pub struct ListItem {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct List {
-    children: Vec<ListItem>,
+    children: Vec<Node>, // ListItem
     enumtype: ListEnumType,
     startat: Option<i32>,
 }
@@ -197,7 +197,7 @@ pub struct Line {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LineBlock {
-    children: Vec<Line>,
+    children: Vec<Node>, // Line
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -222,7 +222,7 @@ pub struct TocTreeDirectiveEntry {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TocTreeDirective {
     directive: Directive,
-    entries: Vec<TocTreeDirectiveEntry>,
+    entries: Vec<Node>, // TocTreeDirectiveEntry
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -315,7 +315,7 @@ pub struct Field {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FieldList {
-    children: Vec<Field>,
+    children: Vec<Node>, // Field
 }
 
 #[derive(Debug, Serialize, Deserialize)]

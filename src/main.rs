@@ -1,5 +1,4 @@
 use std::collections::HashSet;
-use std::ffi::OsString;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
@@ -25,13 +24,17 @@ struct Cli {
 
 fn splice(
     bundles: &mut [bundle::Bundle],
+    site_metadata: &bundle::SiteMetadata,
     mut out_bundle: zip::ZipWriter<BufWriter<File>>,
 ) -> Result<()> {
     let options =
         zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
 
+    out_bundle.start_file("site.bson", options)?;
+    out_bundle.write_all(&bson::to_vec(&site_metadata)?)?;
+
     // Avoid writing any asset more than once, so store the unique hash of each and skip dups
-    let stored_assets: Arc<Mutex<HashSet<OsString>>> = Arc::new(Mutex::new(HashSet::new()));
+    let stored_assets: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
 
     let (tx, rx) = crossbeam_channel::bounded::<Option<bundle::BundleElement>>(10);
 
@@ -47,18 +50,23 @@ fn splice(
             match packet {
                 Some(element) => {
                     // If this asset has already been stored, skip it
-                    if let BundleElementData::Asset(_) = &element.data {
+                    if let BundleElementData::Asset(asset) = &element.data {
                         let asset_hash = element.name.file_name().ok_or_else(|| {
                             anyhow::anyhow!(
                                 "Bundle element is missing a filename: ${:?}",
                                 element.name
                             )
                         })?;
+                        let asset_hash_string = asset_hash.to_str().unwrap();
                         let mut guard = stored_assets.lock().unwrap();
-                        if !guard.insert(asset_hash.to_owned()) {
+                        if !guard.insert(asset_hash_string.to_owned()) {
                             // This asset was already stored
                             continue;
                         }
+
+                        out_bundle.start_file(format!("assets/{asset_hash_string}"), options)?;
+                        out_bundle.write_all(asset)?;
+                        continue;
                     }
 
                     let full_path = element.get_full_bundle_path();
@@ -68,9 +76,6 @@ fn splice(
                     out_bundle.start_file(full_path_string, options).unwrap();
 
                     match element.data {
-                        BundleElementData::Asset(asset) => {
-                            out_bundle.write_all(&asset)?;
-                        }
                         BundleElementData::Document(document) => {
                             let serialized = bson::to_vec(&document)?;
                             out_bundle.write_all(&serialized)?;
@@ -79,6 +84,7 @@ fn splice(
                             let serialized = bson::to_vec(&bundle::Diagnostics { diagnostics })?;
                             out_bundle.write_all(&serialized)?;
                         }
+                        BundleElementData::Asset(_) => (), // Already written
                     }
                 }
                 None => {
@@ -124,7 +130,8 @@ fn main() -> Result<()> {
         bundles.push(bundle);
     }
 
-    splice(&mut bundles, output_archive)?;
+    let site_metadata = bundle::SiteMetadata::new("mongodb", "main");
+    splice(&mut bundles, &site_metadata, output_archive)?;
 
     Ok(())
 }
