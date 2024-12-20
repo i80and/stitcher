@@ -29,6 +29,7 @@ fn splice(
 
     let n_cpus = std::thread::available_parallelism()?.get();
     assert!(n_cpus >= 1_usize);
+    log::debug!("Splicing with {} threads", n_cpus);
     let mut pool = scoped_threadpool::Pool::new(u32::try_from(n_cpus)?);
 
     std::thread::spawn(move || loop {
@@ -44,7 +45,7 @@ fn splice(
     });
 
     pool.scoped(|scope| {
-        // Create references to each element in the vector ...
+        // Chunk our input into a thread pool at bundle granularity
         for bundle in bundles {
             scope.execute(|| {
                 let bundle_ns = bundle.metadata.get_namespace();
@@ -73,6 +74,8 @@ fn splice(
 }
 
 fn main() -> Result<()> {
+    env_logger::init();
+
     let cli = Cli::parse();
 
     let output_file = File::create(cli.output)?;
