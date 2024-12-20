@@ -19,6 +19,26 @@ impl SiteMetadata {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum Severity {
+    Info,
+    Warning,
+    Error,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Diagnostic {
+    severity: String,
+    start: i32,
+    message: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Diagnostics {
+    pub diagnostics: Vec<Diagnostic>,
+}
+
 pub struct BundleIntoIterator<'a> {
     bundle: &'a mut Bundle,
     index: usize,
@@ -33,11 +53,31 @@ impl BundleElement {
     pub fn new(name: PathBuf, data: BundleElementData) -> Self {
         Self { name, data }
     }
+
+    pub fn get_full_bundle_path(&self) -> PathBuf {
+        self.data.get_path_component().join(&self.name)
+    }
+
+    pub fn migrate(&mut self, namespace: &Path) {
+        self.name = namespace.join(&self.name);
+        if let BundleElementData::Document(document) = &self.data {}
+    }
 }
 
 pub enum BundleElementData {
     Document(nodes::Document),
     Asset(Vec<u8>),
+    Diagnostics(Vec<Diagnostic>),
+}
+
+impl BundleElementData {
+    pub fn get_path_component(&self) -> &'static Path {
+        Path::new(match &self {
+            BundleElementData::Document(_) => "documents",
+            BundleElementData::Asset(_) => "assets",
+            BundleElementData::Diagnostics(_) => "diagnostics",
+        })
+    }
 }
 
 pub struct Bundle {
@@ -86,7 +126,7 @@ impl<'a> Iterator for BundleIntoIterator<'a> {
             let filename = match file.enclosed_name() {
                 Some(path) => path,
                 None => {
-                    eprintln!("Bundle entry {} has a prohibited path", file.name());
+                    log::warn!("Bundle entry {} has a prohibited path", file.name());
                     continue;
                 }
             };
@@ -95,17 +135,26 @@ impl<'a> Iterator for BundleIntoIterator<'a> {
                 continue;
             }
 
-            if filename.starts_with("documents") {
+            // Split our filename into the prefix and the remainder; e.g. "documents" and "foo/bar.bson"
+            let mut components_iter = filename.components();
+            let first_component = components_iter.next().unwrap();
+            let filename_prefix: &Path = first_component.as_ref();
+            let filename_without_prefix: PathBuf = components_iter.collect();
+
+            if filename_prefix == Path::new("documents") {
                 return Some(
                     bson::from_reader(file)
                         .with_context(|| {
-                            format!("Error deserializing BSON: {}", filename.display())
+                            format!("Error deserializing document BSON: {}", filename.display())
                         })
                         .map(|value| {
-                            BundleElement::new(filename, BundleElementData::Document(value))
+                            BundleElement::new(
+                                filename_without_prefix,
+                                BundleElementData::Document(value),
+                            )
                         }),
                 );
-            } else if filename.starts_with("assets") {
+            } else if filename_prefix == Path::new("assets") {
                 let mut buf: Vec<u8> = vec![];
                 if let Err(err) = file
                     .read_to_end(&mut buf)
@@ -115,13 +164,29 @@ impl<'a> Iterator for BundleIntoIterator<'a> {
                 }
 
                 return Some(Ok(BundleElement::new(
-                    filename,
+                    filename_without_prefix,
                     BundleElementData::Asset(buf),
                 )));
-            } else if filename == Path::new("site.bson") || filename.starts_with("diagnostics") {
+            } else if filename_prefix == Path::new("diagnostics") {
+                return Some(
+                    bson::from_reader(file)
+                        .with_context(|| {
+                            format!(
+                                "Error deserializing diagnostic BSON: {}",
+                                filename.display()
+                            )
+                        })
+                        .map(|value: Diagnostics| {
+                            BundleElement::new(
+                                filename_without_prefix,
+                                BundleElementData::Diagnostics(value.diagnostics),
+                            )
+                        }),
+                );
+            } else if filename == Path::new("site.bson") {
                 continue;
             } else {
-                eprintln!("Unexpected bundle entry: {}", filename.display());
+                log::warn!("Unexpected bundle entry: {}", filename.display());
             }
         }
     }
