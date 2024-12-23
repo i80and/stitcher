@@ -42,9 +42,17 @@ impl From<PathBuf> for FileId {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct Node {
+    #[serde(flatten)]
+    data: NodeData,
+
+    position: Position,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[serde(tag = "type")]
-pub enum Node {
+pub enum NodeData {
     Code(Code),
     Comment(Comment),
     Label(Label),
@@ -91,12 +99,18 @@ pub enum Node {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Code {
     lang: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     caption: Option<String>,
     copyable: bool,
     emphasize_lines: Option<Vec<(i32, i32)>>,
     value: String,
     linenos: bool,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     lineno_start: Option<i32>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     source: Option<String>,
 }
 
@@ -187,6 +201,8 @@ pub struct ListItem {
 pub struct List {
     children: Vec<Node>, // ListItem
     enumtype: ListEnumType,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     startat: Option<i32>,
 }
 
@@ -208,6 +224,7 @@ pub struct Directive {
     argument: Vec<Node>, // InlineNode
 
     #[serde(default)]
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
     options: HashMap<String, bson::Bson>,
 }
 
@@ -232,11 +249,13 @@ pub struct DirectiveArgument {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Target {
+    children: Vec<Node>,
     domain: String,
     name: String,
     html_id: Option<String>,
 
     #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     options: Option<HashMap<String, bson::Bson>>,
 }
 
@@ -248,7 +267,6 @@ pub struct TargetIdentifier {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct InlineTarget {
-    children: Vec<Node>, // InlineNode
     #[serde(flatten)]
     target: Target,
 }
@@ -259,6 +277,7 @@ pub struct Reference {
     refuri: String,
 
     #[serde(default)]
+    #[serde(skip_serializing_if = "String::is_empty")]
     refname: String,
 }
 
@@ -282,7 +301,10 @@ pub struct RefRole {
     #[serde(flatten)]
     role: Role,
 
+    #[serde(skip_serializing_if = "Option::is_none")]
     fileid: Option<(String, String)>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     url: Option<String>,
 }
 
@@ -328,10 +350,67 @@ pub struct StaticAssetReference {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct Facet {
+    category: String,
+    value: String,
+    sub_facets: Option<Vec<Facet>>,
+    display_name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Document {
     page_id: String,
     filename: String,
-    ast: Root,
+    ast: Node,
     source: String,
     static_assets: Vec<StaticAssetReference>,
+    facets: Option<Vec<Facet>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use pretty_assertions::assert_eq;
+    use std::io::Seek;
+
+    use super::*;
+
+    fn normalize_bson(value: &mut bson::Bson) {
+        if let bson::Bson::Document(map) = value {
+            let mut sorted_map: bson::Document = bson::Document::new();
+
+            // Collect keys, sort them, and insert into the sorted map.
+            let mut keys: Vec<String> = map.keys().cloned().collect();
+            keys.sort();
+            for key in keys {
+                if let Some(mut val) = map.remove(&key) {
+                    normalize_bson(&mut val); // Recursively normalize nested objects.
+                    sorted_map.insert(key, val);
+                }
+            }
+            *map = sorted_map;
+        } else if let bson::Bson::Array(array) = value {
+            for item in array.iter_mut() {
+                normalize_bson(item); // Recursively normalize array elements.
+            }
+        }
+    }
+
+    /// Ensure that deserializing an example document into a Snooty Document, then deserializing the same
+    /// document into a raw Bson tree, results in the same data. This requires normalizing object key
+    /// order and sprinkling some annoying #[serde(skip_serializing_if)] attributes around to make sure
+    /// our output is identical.
+    #[test]
+    fn round_trip_identical() {
+        let f = std::fs::File::open("test_data/supported-operations.bson").unwrap();
+        let mut reader = std::io::BufReader::new(f);
+        let mut doc_raw: bson::Bson = bson::from_reader(&mut reader).unwrap();
+        normalize_bson(&mut doc_raw);
+        reader.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+        let doc1: Document = bson::from_reader(reader).unwrap();
+        let mut b = bson::to_bson(&doc1).unwrap();
+        normalize_bson(&mut b);
+
+        assert_eq!(doc_raw, b);
+    }
 }

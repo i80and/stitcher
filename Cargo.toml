@@ -9,7 +9,7 @@ debug = 1
 
 [dependencies]
 anyhow = { version = "1.0.94", features = ["backtrace"] }
-bson = "2.13.0"
+bson = { version = "2.13.0", features = ["serde_path_to_error"] }
 clap = { version = "4.5.23", features = ["derive"] }
 compact_str = { version = "0.8.0", features = ["serde"] }
 crossbeam-channel = "0.5.14"
@@ -18,3 +18,6 @@ log = "0.4.22"
 scoped_threadpool = "0.1.9"
 serde = { version = "1.0.216", features = ["derive"] }
 zip = "2.2.2"
+
+[dev-dependencies]
+pretty_assertions = "1.4.1"
