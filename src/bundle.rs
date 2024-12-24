@@ -69,19 +69,26 @@ impl BundleElement {
     pub fn migrate(&mut self, namespace: &Path) {
         self.name = namespace.join(&self.name);
         if let BundleElementData::Document(document) = &mut self.data {
-            document.ast.for_each(&|node| {
-                let refrole = match &mut node.data {
-                    nodes::NodeData::RefRole(refrole) => refrole,
-                    _ => return,
-                };
-                if let Some((orig_fileid, html5_id)) = &mut refrole.fileid {
-                    println!("{}", namespace.join(&orig_fileid).to_str().unwrap());
-                    refrole.fileid = Some((
-                        namespace.join(orig_fileid).to_str().unwrap().to_owned(),
-                        html5_id.to_owned(),
-                    ));
+            document.page_id = namespace
+                .join(Path::new(&document.page_id))
+                .to_str()
+                .unwrap()
+                .to_owned();
+            document.ast.for_each(&mut |node| match &mut node.data {
+                nodes::NodeData::RefRole(refrole) => {
+                    if let Some((orig_fileid, html5_id)) = &mut refrole.fileid {
+                        refrole.fileid = Some((
+                            namespace.join(orig_fileid).to_str().unwrap().to_owned(),
+                            html5_id.to_owned(),
+                        ));
+                    }
                 }
-            });
+                nodes::NodeData::Root(root) => {
+                    let new_fileid = namespace.join(&root.fileid.path);
+                    root.fileid = nodes::FileId::from(new_fileid);
+                }
+                _ => (),
+            })
         }
     }
 }
@@ -211,5 +218,80 @@ impl<'a> Iterator for BundleIntoIterator<'a> {
                 log::warn!("Unexpected bundle entry: {}", filename.display());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use nodes::NodeData;
+
+    use super::*;
+
+    /// Ensure that deserializing an example document into a Snooty Document, then deserializing the same
+    /// document into a raw Bson tree, results in the same data. This requires normalizing object key
+    /// order and sprinkling some annoying #[serde(skip_serializing_if)] attributes around to make sure
+    /// our output is identical.
+    #[test]
+    fn migrate() {
+        let mut element = BundleElement::new(
+            PathBuf::from("index.bson"),
+            BundleElementData::Document(Box::new(
+                bson::from_bson(bson::bson![
+                    {"page_id": "bi-connector/heli/master/index",
+                    "filename": "index.txt",
+                    "ast": {
+                        "type": "root",
+                        "position": {"start": {"line": 0}},
+                        "children": [
+                            {
+                                "type": "ref_role",
+                                "position": {"start": {"line": 0}},
+                                "children": [],
+                                "domain": "std",
+                                "name": "label",
+                                "target": "type-conversion-modes",
+                                "flag": "",
+                                "fileid": [
+                                    "reference/type-conversion",
+                                    "std-label-type-conversion-modes"
+                                ]
+                            }
+                        ],
+                        "fileid": "supported-operations.txt"
+                    },
+                    "source": "",
+                    "static_assets": []}
+                ])
+                .unwrap(),
+            )),
+        );
+
+        element.migrate(&Path::new("migrated/main"));
+        assert_eq!(element.name, Path::new("migrated/main/index.bson"));
+        let mut doc = if let BundleElementData::Document(doc) = element.data {
+            doc
+        } else {
+            unreachable!();
+        };
+
+        // XXX What do we actually want page_id to be?
+        assert_eq!(doc.page_id, "migrated/main/bi-connector/heli/master/index");
+
+        let mut fileid_list: Vec<String> = vec![];
+        doc.ast.for_each(&mut |node| {
+            if let NodeData::RefRole(refrole) = &node.data {
+                let (fileid, html5_id) = refrole.fileid.as_ref().unwrap();
+                fileid_list.push(fileid.to_owned());
+                fileid_list.push(html5_id.to_owned());
+            }
+        });
+
+        assert_eq!(
+            fileid_list,
+            vec![
+                "migrated/main/reference/type-conversion",
+                "std-label-type-conversion-modes"
+            ]
+        );
     }
 }

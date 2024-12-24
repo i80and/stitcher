@@ -50,7 +50,7 @@ pub struct Node {
 }
 
 impl Node {
-    pub fn for_each(&mut self, f: &impl Fn(&mut Node)) {
+    pub fn for_each(&mut self, f: &mut impl FnMut(&mut Node)) {
         f(self);
 
         for child in self.data.get_children() {
@@ -219,7 +219,7 @@ pub struct BlockSubstitutionReference {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Root {
     children: Vec<Node>,
-    fileid: FileId,
+    pub fileid: FileId,
 
     #[serde(default)]
     options: HashMap<String, bson::Bson>,
@@ -409,7 +409,7 @@ pub struct Facet {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Document {
-    page_id: String,
+    pub page_id: String,
     filename: String,
     pub ast: Node,
     source: String,
