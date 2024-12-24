@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufWriter, Write};
