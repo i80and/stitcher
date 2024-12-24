@@ -44,9 +44,19 @@ impl From<PathBuf> for FileId {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Node {
     #[serde(flatten)]
-    data: NodeData,
+    pub data: NodeData,
 
     position: Position,
+}
+
+impl Node {
+    pub fn for_each(&mut self, f: &impl Fn(&mut Node)) {
+        f(self);
+
+        for child in self.data.get_children() {
+            child.for_each(f);
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -94,6 +104,46 @@ pub enum NodeData {
     Field(Field),
     FieldList(FieldList),
     Transition(Transition),
+}
+
+impl NodeData {
+    pub fn get_children(&mut self) -> &mut [Node] {
+        match self {
+            NodeData::Code(_) => &mut [],
+            NodeData::Comment(node) => &mut node.children,
+            NodeData::Label(node) => &mut node.children,
+            NodeData::Section(node) => &mut node.children,
+            NodeData::Paragraph(node) => &mut node.children,
+            NodeData::Footnote(node) => &mut node.children,
+            NodeData::FootnoteReference(node) => &mut node.children,
+            NodeData::SubstitutionDefinition(node) => &mut node.children,
+            NodeData::SubstitutionReference(node) => &mut node.children,
+            NodeData::Root(node) => &mut node.children,
+            NodeData::Heading(node) => &mut node.children,
+            NodeData::DefinitionListItem(node) => &mut node.children,
+            NodeData::DefinitionList(node) => &mut node.children,
+            NodeData::ListItem(node) => &mut node.children,
+            NodeData::List(node) => &mut node.children,
+            NodeData::Line(node) => &mut node.children,
+            NodeData::LineBlock(node) => &mut node.children,
+            NodeData::Directive(node) => &mut node.children,
+            NodeData::DirectiveArgument(node) => &mut node.children,
+            NodeData::Target(node) => &mut node.children,
+            NodeData::TargetIdentifier(node) => &mut node.children,
+            NodeData::InlineTarget(_) => &mut [],
+            NodeData::Reference(node) => &mut node.children,
+            NodeData::NamedReference(_) => &mut [],
+            NodeData::Role(node) => &mut node.children,
+            NodeData::RefRole(_) => &mut [],
+            NodeData::Text(_) => &mut [],
+            NodeData::Literal(node) => &mut node.children,
+            NodeData::Emphasis(node) => &mut node.children,
+            NodeData::Strong(node) => &mut node.children,
+            NodeData::Field(node) => &mut node.children,
+            NodeData::FieldList(node) => &mut node.children,
+            NodeData::Transition(_) => &mut [],
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -302,7 +352,7 @@ pub struct RefRole {
     role: Role,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    fileid: Option<(String, String)>,
+    pub fileid: Option<(String, String)>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     url: Option<String>,
@@ -361,7 +411,7 @@ pub struct Facet {
 pub struct Document {
     page_id: String,
     filename: String,
-    ast: Node,
+    pub ast: Node,
     source: String,
     static_assets: Vec<StaticAssetReference>,
     facets: Option<Vec<Facet>>,

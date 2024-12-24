@@ -65,14 +65,29 @@ impl BundleElement {
         self.data.get_path_component().join(&self.name)
     }
 
+    /// Migrate internal references within this bundle to be under a new namespace
     pub fn migrate(&mut self, namespace: &Path) {
         self.name = namespace.join(&self.name);
-        if let BundleElementData::Document(document) = &self.data {}
+        if let BundleElementData::Document(document) = &mut self.data {
+            document.ast.for_each(&|node| {
+                let refrole = match &mut node.data {
+                    nodes::NodeData::RefRole(refrole) => refrole,
+                    _ => return,
+                };
+                if let Some((orig_fileid, html5_id)) = &mut refrole.fileid {
+                    println!("{}", namespace.join(&orig_fileid).to_str().unwrap());
+                    refrole.fileid = Some((
+                        namespace.join(orig_fileid).to_str().unwrap().to_owned(),
+                        html5_id.to_owned(),
+                    ));
+                }
+            });
+        }
     }
 }
 
 pub enum BundleElementData {
-    Document(nodes::Document),
+    Document(Box<nodes::Document>),
     Asset(Vec<u8>),
     Diagnostics(Vec<Diagnostic>),
 }
