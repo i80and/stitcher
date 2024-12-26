@@ -22,12 +22,42 @@ fn make_html5_id(orig: &str) -> Cow<'_, str> {
     clean_id
 }
 
-pub trait Analyzer {
-    fn enter_page(&mut self, _page: &nodes::Document) {}
-    fn exit_page(&mut self, _page: &nodes::Document) {}
+pub struct FileIdStack {
+    stack: Vec<nodes::FileId>,
+}
 
-    fn enter_node(&mut self, _node: &mut nodes::Node) {}
-    fn exit_node(&mut self, _node: &mut nodes::Node) {}
+impl FileIdStack {
+    pub fn new() -> Self {
+        Self { stack: vec![] }
+    }
+
+    pub fn pop(&mut self) {
+        self.stack.pop();
+    }
+
+    pub fn push(&mut self, fileid: &nodes::FileId) {
+        self.stack.push(fileid.to_owned());
+    }
+
+    pub fn clear(&mut self) {
+        self.stack.clear();
+    }
+
+    pub fn get_root(&self) -> Option<&nodes::FileId> {
+        self.stack.first()
+    }
+
+    pub fn get_current(&self) -> Option<&nodes::FileId> {
+        self.stack.last()
+    }
+}
+
+pub trait Analyzer {
+    fn enter_page(&mut self, _fileid_stack: &FileIdStack, _page: &nodes::Document) {}
+    fn exit_page(&mut self, _fileid_stack: &FileIdStack, _page: &nodes::Document) {}
+
+    fn enter_node(&mut self, _fileid_stack: &FileIdStack, _node: &mut nodes::Node) {}
+    fn exit_node(&mut self, _fileid_stack: &FileIdStack, _node: &mut nodes::Node) {}
 }
 
 pub struct SimpleAnalyzer<'a> {
@@ -41,7 +71,7 @@ impl<'a> SimpleAnalyzer<'a> {
 }
 
 impl<'a> Analyzer for SimpleAnalyzer<'a> {
-    fn enter_node(&mut self, node: &mut nodes::Node) {
+    fn enter_node(&mut self, _fileid_stack: &FileIdStack, node: &mut nodes::Node) {
         (self.f)(node);
     }
 }
@@ -49,7 +79,6 @@ impl<'a> Analyzer for SimpleAnalyzer<'a> {
 pub struct TargetPass1<'a> {
     db: &'a Mutex<target_database::TargetDatabase>,
     target_counter: HashMap<String, u32>,
-    page: Option<nodes::FileId>,
 }
 
 impl<'a> TargetPass1<'a> {
@@ -57,17 +86,16 @@ impl<'a> TargetPass1<'a> {
         Self {
             db,
             target_counter: HashMap::new(),
-            page: None,
         }
     }
 }
 
 impl<'a> Analyzer for TargetPass1<'a> {
-    fn enter_page(&mut self, page: &nodes::Document) {
-        self.page = Some(page.filename.to_owned());
+    fn enter_page(&mut self, _fileid_stack: &FileIdStack, _page: &nodes::Document) {
+        self.target_counter.clear();
     }
 
-    fn enter_node(&mut self, node: &mut nodes::Node) {
+    fn enter_node(&mut self, fileid_stack: &FileIdStack, node: &mut nodes::Node) {
         if let nodes::NodeData::Target(ref mut target) = node.data {
             // Frankly, this is silly. We just pick the longest identifier. This is arbitrary,
             // and we can consider this behavior implementation-defined to be changed later if needed.
@@ -129,7 +157,9 @@ impl<'a> Analyzer for TargetPass1<'a> {
                     &target.domain,
                     &target.name,
                     &target_ids,
-                    self.page.as_ref().unwrap(),
+                    fileid_stack
+                        .get_root()
+                        .expect("Analysis started at non-root node"),
                     &title,
                     &chosen_html_id,
                 );

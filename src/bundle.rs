@@ -5,7 +5,6 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::analyzer;
 use crate::nodes;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -92,9 +91,7 @@ impl BundleElement {
                 _ => (),
             };
 
-            document
-                .ast
-                .for_each(&mut analyzer::SimpleAnalyzer::new(&mut migrate_handler));
+            document.ast.for_each(&mut migrate_handler);
         }
     }
 }
@@ -291,8 +288,7 @@ mod tests {
                 fileid_list.push(html5_id.to_owned());
             }
         };
-        doc.ast
-            .for_each(&mut analyzer::SimpleAnalyzer::new(&mut collect_fileids));
+        doc.ast.for_each(&mut collect_fileids);
 
         assert_eq!(
             fileid_list,

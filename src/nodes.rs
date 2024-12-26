@@ -1,6 +1,6 @@
 use std::{collections::HashMap, path::PathBuf};
 
-use crate::analyzer;
+use crate::analyzer::{self, FileIdStack};
 
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
@@ -89,14 +89,38 @@ pub struct Node {
 }
 
 impl Node {
-    pub fn for_each(&mut self, f: &mut impl analyzer::Analyzer) {
-        f.enter_node(self);
+    pub fn for_each(&mut self, f: &mut impl FnMut(&mut Node)) {
+        let mut analyzer = analyzer::SimpleAnalyzer::new(f);
+        self.run_analyzer(&mut analyzer);
+    }
+
+    pub fn run_analyzer(&mut self, analyzer: &mut impl analyzer::Analyzer) {
+        self.run_analyzer_inner(&mut analyzer::FileIdStack::new(), analyzer)
+    }
+
+    fn run_analyzer_inner(
+        &mut self,
+        fileid_stack: &mut FileIdStack,
+        analyzer: &mut impl analyzer::Analyzer,
+    ) {
+        let need_to_pop = if let NodeData::Root(root_node) = &self.data {
+            fileid_stack.push(&root_node.fileid);
+            true
+        } else {
+            false
+        };
+
+        analyzer.enter_node(fileid_stack, self);
 
         for child in self.data.get_children() {
-            child.for_each(f);
+            child.run_analyzer_inner(fileid_stack, analyzer);
         }
 
-        f.exit_node(self);
+        analyzer.exit_node(fileid_stack, self);
+
+        if need_to_pop {
+            fileid_stack.pop();
+        }
     }
 }
 

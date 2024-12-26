@@ -6,7 +6,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::analyzer::{self, Analyzer};
+use crate::analyzer;
 use crate::bundle;
 use crate::target_database;
 
@@ -130,9 +130,7 @@ impl BundleSet {
                     for entry in bundle.into_iter() {
                         let entry = entry.unwrap();
                         if let bundle::BundleElementData::Document(mut doc) = entry.data {
-                            target_analyzer.enter_page(&doc);
-                            doc.ast.for_each(&mut target_analyzer);
-                            target_analyzer.exit_page(&doc);
+                            doc.ast.run_analyzer(&mut target_analyzer);
                         }
                     }
                 });
