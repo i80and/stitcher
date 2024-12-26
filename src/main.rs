@@ -7,9 +7,11 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::Parser;
 
+mod analyzer;
 mod bundle;
 mod bundle_set;
 mod nodes;
+mod target_database;
 
 #[derive(clap::Parser)]
 #[command(version, about, long_about = None)]
@@ -37,9 +39,10 @@ fn main() -> Result<()> {
         bundles.push(bundle);
     }
 
-    let bundles = bundle_set::BundleSet::new(bundles.into_iter());
+    let mut bundles = bundle_set::BundleSet::new(bundles.into_iter());
 
     let site_metadata = bundle::SiteMetadata::new("mongodb", "main");
+    bundles.link()?;
     bundles.splice(&site_metadata, output_archive)?;
 
     Ok(())

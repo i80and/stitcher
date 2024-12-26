@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
+use crate::analyzer;
 use crate::nodes;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -74,7 +75,8 @@ impl BundleElement {
                 .to_str()
                 .unwrap()
                 .to_owned();
-            document.ast.for_each(&mut |node| match &mut node.data {
+
+            let mut migrate_handler = &mut |node: &mut nodes::Node| match &mut node.data {
                 nodes::NodeData::RefRole(refrole) => {
                     if let Some((orig_fileid, html5_id)) = &mut refrole.fileid {
                         refrole.fileid = Some((
@@ -88,7 +90,11 @@ impl BundleElement {
                     root.fileid = nodes::FileId::from(new_fileid);
                 }
                 _ => (),
-            })
+            };
+
+            document
+                .ast
+                .for_each(&mut analyzer::SimpleAnalyzer::new(&mut migrate_handler));
         }
     }
 }
@@ -266,7 +272,7 @@ mod tests {
             )),
         );
 
-        element.migrate(&Path::new("migrated/main"));
+        element.migrate(Path::new("migrated/main"));
         assert_eq!(element.name, Path::new("migrated/main/index.bson"));
         let mut doc = if let BundleElementData::Document(doc) = element.data {
             doc
@@ -278,13 +284,15 @@ mod tests {
         assert_eq!(doc.page_id, "migrated/main/bi-connector/heli/master/index");
 
         let mut fileid_list: Vec<String> = vec![];
-        doc.ast.for_each(&mut |node| {
+        let mut collect_fileids = |node: &mut nodes::Node| {
             if let NodeData::RefRole(refrole) = &node.data {
                 let (fileid, html5_id) = refrole.fileid.as_ref().unwrap();
                 fileid_list.push(fileid.to_owned());
                 fileid_list.push(html5_id.to_owned());
             }
-        });
+        };
+        doc.ast
+            .for_each(&mut analyzer::SimpleAnalyzer::new(&mut collect_fileids));
 
         assert_eq!(
             fileid_list,

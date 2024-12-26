@@ -6,7 +6,9 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use crate::analyzer::{self, Analyzer};
 use crate::bundle;
+use crate::target_database;
 
 pub struct BundleSet {
     pub bundles: Vec<Mutex<bundle::Bundle>>,
@@ -111,6 +113,31 @@ impl BundleSet {
         tx.send(None)?;
         thread.join().unwrap()?;
 
+        Ok(())
+    }
+
+    pub fn link(&mut self) -> anyhow::Result<()> {
+        let n_cpus = std::thread::available_parallelism()?.get();
+        let mut pool = scoped_threadpool::Pool::new(u32::try_from(n_cpus)?);
+
+        let db = Mutex::new(target_database::TargetDatabase::new());
+
+        pool.scoped(|scope| {
+            for bundle in &self.bundles {
+                scope.execute(|| {
+                    let mut target_analyzer = analyzer::TargetPass1::new(&db);
+                    let mut bundle = bundle.lock().unwrap();
+                    for entry in bundle.into_iter() {
+                        let entry = entry.unwrap();
+                        if let bundle::BundleElementData::Document(mut doc) = entry.data {
+                            target_analyzer.enter_page(&doc);
+                            doc.ast.for_each(&mut target_analyzer);
+                            target_analyzer.exit_page(&doc);
+                        }
+                    }
+                });
+            }
+        });
         Ok(())
     }
 }

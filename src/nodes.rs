@@ -1,18 +1,26 @@
 use std::{collections::HashMap, path::PathBuf};
 
+use crate::analyzer;
+
+use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize)]
+lazy_static! {
+    static ref PAT_FILE_EXTENSIONS: regex::Regex =
+        regex::Regex::new(r###"\.((txt)|(rst)|(yaml)|(ast))$"###).unwrap();
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SourceInfo {
     line: i32,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Position {
     start: SourceInfo,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum ListEnumType {
     Unordered,
@@ -29,6 +37,37 @@ pub struct FileId {
     pub path: PathBuf,
 }
 
+impl FileId {
+    pub fn without_known_suffix(&self) -> String {
+        let new_filename = PAT_FILE_EXTENSIONS.replace_all(
+            self.path
+                .file_name()
+                .expect("Filename required to remove suffix")
+                .to_str()
+                .expect("Filename must be expressible as a string to remove suffix"),
+            "",
+        );
+        let fileid: FileId = self.path.with_file_name(new_filename.as_ref()).into();
+        fileid.as_posix()
+    }
+
+    pub fn as_posix(&self) -> String {
+        self.path
+            .components()
+            .map(|part| match part {
+                std::path::Component::Prefix(_) => {
+                    panic!("prefix component cannot be part of FileIds")
+                }
+                std::path::Component::RootDir => "",
+                std::path::Component::CurDir => ".",
+                std::path::Component::ParentDir => "..",
+                std::path::Component::Normal(part) => part.to_str().unwrap(),
+            })
+            .collect::<Vec<&str>>()
+            .join("/")
+    }
+}
+
 impl From<FileId> for PathBuf {
     fn from(val: FileId) -> Self {
         val.path
@@ -41,7 +80,7 @@ impl From<PathBuf> for FileId {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Node {
     #[serde(flatten)]
     pub data: NodeData,
@@ -50,16 +89,18 @@ pub struct Node {
 }
 
 impl Node {
-    pub fn for_each(&mut self, f: &mut impl FnMut(&mut Node)) {
-        f(self);
+    pub fn for_each(&mut self, f: &mut impl analyzer::Analyzer) {
+        f.enter_node(self);
 
         for child in self.data.get_children() {
             child.for_each(f);
         }
+
+        f.exit_node(self);
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
 #[serde(tag = "type")]
 pub enum NodeData {
@@ -110,43 +151,43 @@ impl NodeData {
     pub fn get_children(&mut self) -> &mut [Node] {
         match self {
             NodeData::Code(_) => &mut [],
-            NodeData::Comment(node) => &mut node.children,
-            NodeData::Label(node) => &mut node.children,
-            NodeData::Section(node) => &mut node.children,
-            NodeData::Paragraph(node) => &mut node.children,
-            NodeData::Footnote(node) => &mut node.children,
-            NodeData::FootnoteReference(node) => &mut node.children,
-            NodeData::SubstitutionDefinition(node) => &mut node.children,
-            NodeData::SubstitutionReference(node) => &mut node.children,
-            NodeData::Root(node) => &mut node.children,
-            NodeData::Heading(node) => &mut node.children,
-            NodeData::DefinitionListItem(node) => &mut node.children,
-            NodeData::DefinitionList(node) => &mut node.children,
-            NodeData::ListItem(node) => &mut node.children,
-            NodeData::List(node) => &mut node.children,
-            NodeData::Line(node) => &mut node.children,
-            NodeData::LineBlock(node) => &mut node.children,
-            NodeData::Directive(node) => &mut node.children,
-            NodeData::DirectiveArgument(node) => &mut node.children,
-            NodeData::Target(node) => &mut node.children,
-            NodeData::TargetIdentifier(node) => &mut node.children,
+            NodeData::Comment(n) => &mut n.children,
+            NodeData::Label(n) => &mut n.children,
+            NodeData::Section(n) => &mut n.children,
+            NodeData::Paragraph(n) => &mut n.children,
+            NodeData::Footnote(n) => &mut n.children,
+            NodeData::FootnoteReference(n) => &mut n.children,
+            NodeData::SubstitutionDefinition(n) => &mut n.children,
+            NodeData::SubstitutionReference(n) => &mut n.children,
+            NodeData::Root(n) => &mut n.children,
+            NodeData::Heading(n) => &mut n.children,
+            NodeData::DefinitionListItem(n) => &mut n.children,
+            NodeData::DefinitionList(n) => &mut n.children,
+            NodeData::ListItem(n) => &mut n.children,
+            NodeData::List(n) => &mut n.children,
+            NodeData::Line(n) => &mut n.children,
+            NodeData::LineBlock(n) => &mut n.children,
+            NodeData::Directive(n) => &mut n.children,
+            NodeData::DirectiveArgument(n) => &mut n.children,
+            NodeData::Target(n) => &mut n.children,
+            NodeData::TargetIdentifier(n) => &mut n.children,
             NodeData::InlineTarget(_) => &mut [],
-            NodeData::Reference(node) => &mut node.children,
+            NodeData::Reference(n) => &mut n.children,
             NodeData::NamedReference(_) => &mut [],
-            NodeData::Role(node) => &mut node.children,
+            NodeData::Role(n) => &mut n.children,
             NodeData::RefRole(_) => &mut [],
             NodeData::Text(_) => &mut [],
-            NodeData::Literal(node) => &mut node.children,
-            NodeData::Emphasis(node) => &mut node.children,
-            NodeData::Strong(node) => &mut node.children,
-            NodeData::Field(node) => &mut node.children,
-            NodeData::FieldList(node) => &mut node.children,
+            NodeData::Literal(n) => &mut n.children,
+            NodeData::Emphasis(n) => &mut n.children,
+            NodeData::Strong(n) => &mut n.children,
+            NodeData::Field(n) => &mut n.children,
+            NodeData::FieldList(n) => &mut n.children,
             NodeData::Transition(_) => &mut [],
         }
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Code {
     lang: Option<String>,
 
@@ -164,59 +205,59 @@ pub struct Code {
     source: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Comment {
     children: Vec<Node>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Label {
     children: Vec<Node>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Section {
     children: Vec<Node>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Paragraph {
     children: Vec<Node>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Footnote {
     children: Vec<Node>,
     id: String,
     name: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct FootnoteReference {
     children: Vec<Node>, // InlineNode
     id: String,
     refname: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SubstitutionDefinition {
     children: Vec<Node>, // InlineNode
     name: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SubstitutionReference {
     children: Vec<Node>, // InlineNode
     name: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BlockSubstitutionReference {
     children: Vec<Node>,
     name: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Root {
     children: Vec<Node>,
     pub fileid: FileId,
@@ -225,29 +266,29 @@ pub struct Root {
     options: HashMap<String, bson::Bson>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Heading {
     children: Vec<Node>, // InlineNode
     id: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DefinitionListItem {
     children: Vec<Node>,
     term: Vec<Node>, // InlineNode
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DefinitionList {
     children: Vec<Node>, // DefinitionListItem
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ListItem {
     children: Vec<Node>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct List {
     children: Vec<Node>, // ListItem
     enumtype: ListEnumType,
@@ -256,17 +297,17 @@ pub struct List {
     startat: Option<i32>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Line {
     children: Vec<Node>, // InlineNode
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LineBlock {
     children: Vec<Node>, // Line
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Directive {
     children: Vec<Node>,
     domain: String,
@@ -278,7 +319,7 @@ pub struct Directive {
     options: HashMap<String, bson::Bson>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TocTreeDirectiveEntry {
     title: Option<String>,
     url: Option<String>,
@@ -286,42 +327,42 @@ pub struct TocTreeDirectiveEntry {
     ref_project: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TocTreeDirective {
     directive: Directive,
     entries: Vec<Node>, // TocTreeDirectiveEntry
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DirectiveArgument {
     children: Vec<Node>, // InlineNode
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Target {
-    children: Vec<Node>,
-    domain: String,
-    name: String,
-    html_id: Option<String>,
+    pub children: Vec<Node>,
+    pub domain: String,
+    pub name: String,
+    pub html_id: Option<String>,
 
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     options: Option<HashMap<String, bson::Bson>>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TargetIdentifier {
-    children: Vec<Node>, // InlineNode
-    ids: Vec<String>,
+    pub children: Vec<Node>, // InlineNode
+    pub ids: Vec<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct InlineTarget {
     #[serde(flatten)]
     target: Target,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Reference {
     children: Vec<Node>, // InlineNode
     refuri: String,
@@ -331,13 +372,13 @@ pub struct Reference {
     refname: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct NamedReference {
     refname: String,
     refuri: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Role {
     children: Vec<Node>, // InlineNode
     domain: String,
@@ -346,7 +387,7 @@ pub struct Role {
     flag: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RefRole {
     #[serde(flatten)]
     role: Role,
@@ -358,48 +399,48 @@ pub struct RefRole {
     url: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Text {
     value: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Literal {
     children: Vec<Node>, // InlineNode
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Emphasis {
     children: Vec<Node>, // InlineNode
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Strong {
     children: Vec<Node>, // InlineNode
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Field {
     children: Vec<Node>,
     name: String,
     label: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct FieldList {
     children: Vec<Node>, // Field
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Transition {}
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct StaticAssetReference {
     checksum: String,
     key: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Facet {
     category: String,
     value: String,
@@ -407,10 +448,10 @@ pub struct Facet {
     display_name: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Document {
     pub page_id: String,
-    filename: String,
+    pub filename: FileId,
     pub ast: Node,
     source: String,
     static_assets: Vec<StaticAssetReference>,
@@ -462,5 +503,29 @@ mod tests {
         normalize_bson(&mut b);
 
         assert_eq!(doc_raw, b);
+    }
+
+    #[test]
+    fn test_without_known_suffix() {
+        let fileid: FileId = PathBuf::from("foo/bar.txt").into();
+        assert_eq!(fileid.without_known_suffix(), "foo/bar");
+
+        let fileid: FileId = PathBuf::from("foo/bar.png").into();
+        assert_eq!(fileid.without_known_suffix(), "foo/bar.png")
+    }
+
+    #[test]
+    fn test_as_posix() {
+        let fileid: FileId = PathBuf::from("foo/bar").into();
+        assert_eq!(fileid.as_posix(), "foo/bar");
+
+        let fileid: FileId = PathBuf::from("/foo/bar").into();
+        assert_eq!(fileid.as_posix(), "/foo/bar");
+
+        let fileid: FileId = PathBuf::from("/foo/../bar").into();
+        assert_eq!(fileid.as_posix(), "/foo/../bar");
+
+        let fileid: FileId = PathBuf::from("/foo/./bar").into();
+        assert_eq!(fileid.as_posix(), "/foo/bar");
     }
 }
